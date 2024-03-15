@@ -210,3 +210,7 @@ class Flip(Function):
     return x.stride(self.arg)
 
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer: return grad_output.stride(self.arg)
+
+class Lookup(Function):
+  def forward(self, idx:LazyBuffer) -> LazyBuffer:
+    self.idx = idx

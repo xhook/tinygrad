@@ -25,12 +25,22 @@ class CStyleLanguage(NamedTuple):
   uses_ptr_arithmetic: bool = False
   type_map: Dict[DType, str] = {}
   code_for_op: Dict = {
-    UnaryOps.NEG: lambda x,dtype: f"(!{x})" if dtype is dtypes.bool else f"(-{x})", UnaryOps.SQRT: lambda x,dtype: f"sqrt({x})",
-    UnaryOps.EXP2: lambda x,dtype: f"exp2({x})", UnaryOps.LOG2: lambda x,dtype: f"log2({x})", UnaryOps.SIN: lambda x,dtype: f"sin({x})",
-    BinaryOps.ADD: lambda a,b,dtype: f"({a}+{b})", BinaryOps.SUB: lambda a,b,dtype: f"({a}-{b})", BinaryOps.MUL: lambda a,b,dtype: f"({a}*{b})",
-    BinaryOps.DIV: lambda a,b,dtype: f"({a}/{b})", BinaryOps.MAX: lambda a,b,dtype: f"max({a},{b})", BinaryOps.MOD: lambda a,b,dtype: f"({a}%{b})",
-    BinaryOps.CMPLT: lambda a,b,dtype: f"({a}<{b})", BinaryOps.CMPEQ: lambda a,b,dtype: f"({a}=={b})", BinaryOps.XOR: lambda a,b,dtype: f"({a}^{b})",
-    TernaryOps.WHERE: lambda a,b,c,dtype: f"({a}?{b}:{c})"}
+    UnaryOps.NEG: lambda x, dtype: f"(!{x})" if dtype is dtypes.bool else f"(-{x})",
+    UnaryOps.SQRT: lambda x, dtype: f"sqrt({x})",
+    UnaryOps.EXP2: lambda x, dtype: f"exp2({x})",
+    UnaryOps.LOG2: lambda x, dtype: f"log2({x})",
+    UnaryOps.SIN: lambda x, dtype: f"sin({x})",
+    BinaryOps.ADD: lambda a, b, dtype: f"({a}+{b})",
+    BinaryOps.SUB: lambda a, b, dtype: f"({a}-{b})",
+    BinaryOps.MUL: lambda a, b, dtype: f"({a}*{b})",
+    BinaryOps.DIV: lambda a, b, dtype: f"({a}/{b})",
+    BinaryOps.MAX: lambda a, b, dtype: f"max({a},{b})",
+    BinaryOps.MOD: lambda a, b, dtype: f"({a}%{b})",
+    BinaryOps.CMPLT: lambda a, b, dtype: f"({a}<{b})",
+    BinaryOps.CMPEQ: lambda a, b, dtype: f"({a}=={b})",
+    BinaryOps.XOR: lambda a, b, dtype: f"({a}^{b})",
+    TernaryOps.WHERE: lambda a, b, c, dtype: f"({a}?{b}:{c})"
+  }
 
   # returns a str expression of the casted xs with the given type
   def render_cast(self, x:List[str], var_dtype:DType, bitcast=False) -> str:
@@ -57,7 +67,8 @@ class CStyleLanguage(NamedTuple):
     if self.uses_vload and buf_dtype.scalar() == dtypes.float16 and output_dtype.scalar() != dtypes.float16:
       return f"vload_half{'' if output_dtype.count == 1 else str(output_dtype.count)}(0, {buf_name}+{idx})"
     if output_dtype.count > 1:
-      out_val = f"*(({self.smem_prefix if local and self.smem_prefix_for_cast else self.buffer_prefix}{buf_dtype.name}{output_dtype.count}*)({buf_name}+{idx}))"  # noqa: E501
+      prefix = self.smem_prefix if local and self.smem_prefix_for_cast else self.buffer_prefix
+      out_val = f"*(({prefix}{buf_dtype.name}{output_dtype.count}*)({buf_name}+{idx}))"  # noqa: E501
     else:
       out_val = f"*({buf_name}+{idx})" if self.uses_ptr_arithmetic else f"{buf_name}[{idx}]"
     return self.render_cast([out_val], output_dtype) if output_dtype != buf_dtype else out_val
