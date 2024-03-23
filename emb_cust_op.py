@@ -8,15 +8,15 @@ from tinygrad.shape.shapetracker import ShapeTracker
 
 def emb_gpu(out: Buffer, voc: Buffer, idx: Buffer):
   src = """
-extern "C" __global__ void emb_gpu(float* out, float* dict, int* idx) {
-  for (int ridx0 = 0; ridx0 < 3; ridx0++) {
-    int val0 = idx[ridx0];
-    for (int ridx1 = 0; ridx1 < 2; ridx1++) {
-      float val1 = dict[(val0*2)+ridx1];
-      out[(ridx0*2)+ridx1] = val1;
+    extern "C" __global__ void emb_gpu(float* out, float* dict, int* idx) {
+      for (int ridx0 = 0; ridx0 < 3; ridx0++) {
+        int val0 = idx[ridx0];
+        for (int ridx1 = 0; ridx1 < 2; ridx1++) {
+          float val1 = dict[(val0*2)+ridx1];
+          out[(ridx0*2)+ridx1] = val1;
+        }
+      }
     }
-  }
-}
   """
   device = Device[Device.DEFAULT]
   has_local = device.compiler.linearizer_opts.has_local

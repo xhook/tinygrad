@@ -29,12 +29,12 @@ def create_graph(idx_len: int, emb_len: int):
   return UOpGraph(uops)
 
 
-def _uops_to_prg(uops):
+def _uops_to_prg(uops, name="test"):
   device = Device[Device.DEFAULT]
-  src = device.compiler.render("test", uops)
-  print(src)
+  src = device.compiler.render(name, uops)
+  # print(src)
   has_local = device.compiler.linearizer_opts.has_local
-  return CompiledASTRunner("test", src, device, [1] if has_local else None, [1] if has_local else None)
+  return CompiledASTRunner(name, src, device, [1] if has_local else None, [1] if has_local else None)
 
 
 def embedding(dict_t, idx_t):
