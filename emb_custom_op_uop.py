@@ -2,12 +2,21 @@ from tinygrad import Device, Tensor, dtypes
 from tinygrad.codegen.uops import UOpGraph, UOps, UOp
 from tinygrad.device import Buffer, CompiledASTRunner
 from tinygrad.dtype import PtrDType
-from tinygrad.lazy import create_lazybuffer
+from tinygrad.lazy import create_lazybuffer, LazyBuffer
 from tinygrad.ops import BinaryOps, LoadOps
 from tinygrad.shape.shapetracker import ShapeTracker
+from tinygrad.tensor import Function
+from tinygrad.nn import Embedding
 
 
-def create_graph(batch_size: int, idx_len: int, emb_len: int):
+def _uops_to_prg(uops, name="test"):
+  device = Device[Device.DEFAULT]
+  src = device.compiler.render(name, uops)
+  has_local = device.compiler.linearizer_opts.has_local  # TODO: Look why this is needed, I simply copied it from test_custom_function.py
+  return CompiledASTRunner(name, src, device, [1] if has_local else None, [1] if has_local else None)
+
+
+def emb_fwd_graph(batch_size: int, idx_len: int, emb_len: int):
   uops = []
   uops += [p_out := UOp(uop=UOps.DEFINE_GLOBAL, dtype=PtrDType(dtypes.float32), arg=(0, 'out', True))]
   uops += [p_voc := UOp(uop=UOps.DEFINE_GLOBAL, dtype=PtrDType(dtypes.float32), arg=(1, 'voc', True))]
@@ -20,8 +29,8 @@ def create_graph(batch_size: int, idx_len: int, emb_len: int):
   uops += [v_idx_i_st := UOp(uop=UOps.ALU, dtype=dtypes.int32, vin=(l_bat_i, c_idx_len), arg=BinaryOps.MUL)]
   uops += [l_idx_i := UOp(uop=UOps.LOOP, dtype=dtypes.int32, vin=(c_zero, c_idx_len))]
   uops += [v_idx_i := UOp(uop=UOps.ALU, dtype=dtypes.int32, vin=(v_idx_i_st, l_idx_i), arg=BinaryOps.ADD)]
-  uops += [l_emb_i := UOp(uop=UOps.LOOP, dtype=dtypes.int32, vin=(c_zero, c_emb_len))]
   uops += [v_idx := UOp(uop=UOps.LOAD, dtype=dtypes.int32, vin=(p_idx, v_idx_i))]
+  uops += [l_emb_i := UOp(uop=UOps.LOOP, dtype=dtypes.int32, vin=(c_zero, c_emb_len))]
   uops += [v_emb_idx_st := UOp(uop=UOps.ALU, dtype=dtypes.int32, vin=(v_idx, c_emb_len), arg=BinaryOps.MUL)]
   uops += [v_emb_idx := UOp(uop=UOps.ALU, dtype=dtypes.int32, vin=(v_emb_idx_st, l_emb_i), arg=BinaryOps.ADD)]
   uops += [v_emb := UOp(uop=UOps.LOAD, dtype=dtypes.float32, vin=(p_voc, v_emb_idx))]
@@ -37,47 +46,63 @@ def create_graph(batch_size: int, idx_len: int, emb_len: int):
   return UOpGraph(uops)
 
 
-def _uops_to_prg(uops, name="test"):
-  device = Device[Device.DEFAULT]
-  src = device.compiler.render(name, uops)
-  # print(src)
-  has_local = device.compiler.linearizer_opts.has_local
-  return CompiledASTRunner(name, src, device, [1] if has_local else None, [1] if has_local else None)
+def embedding_fwd(voc: LazyBuffer, idx: LazyBuffer) -> LazyBuffer:
+  bs, idx_len = idx.shape
+  emb_len = voc.shape[1]
+  graph = emb_fwd_graph(idx_len=idx_len, emb_len=emb_len, batch_size=bs)
+  prg = _uops_to_prg(graph, name=f"emb_fwd_b{bs}_i{idx_len}_e{emb_len}")
 
-
-def embedding(dict_t: Tensor, idx_t: Tensor) -> Tensor:
-  bs, idx_len = idx_t.shape
-  emb_len = dict_t.shape[1]
-  graph = create_graph(idx_len=idx_len, emb_len=emb_len, batch_size=bs)
-  prg = _uops_to_prg(graph, name="emb")
-
-  def emb(out: Buffer, voc: Buffer, idx: Buffer):
+  def ex(out: Buffer, voc: Buffer, idx: Buffer):
     return prg.exec([out, voc, idx])
 
-  return Tensor(create_lazybuffer(
-    dict_t.device,
+  return create_lazybuffer(
+    voc.device,
     ShapeTracker.from_shape((bs, idx_len, emb_len)),
     dtypes.float32,
     LoadOps.CUSTOM,
-    arg=emb,
-    srcs=(dict_t.lazydata, idx_t.lazydata)
-  ))
+    arg=ex,
+    srcs=(voc, idx)
+  )
+
+
+class EmbeddingFn(Function):
+  def forward(self, voc: LazyBuffer, idx: LazyBuffer) -> LazyBuffer:
+    return embedding_fwd(voc, idx)
+
+  def backward(self, grad_output: LazyBuffer) -> LazyBuffer:
+    raise NotImplementedError("backward not implemented for EmbeddingFn")
+
+
+class EmbeddingV2:
+  def __init__(self, vocab_size: int, embed_size: int):
+    self.vocab_size, self.embed_size = vocab_size, embed_size
+    self.weight = Tensor.glorot_uniform(vocab_size, embed_size)
+
+  def __call__(self, idx: Tensor) -> Tensor:
+    return EmbeddingFn.apply(self.weight, idx)
 
 
 def main():
-  dict_t = Tensor([
+  voc = Tensor([
     [1, 2],
     [3, 4],
     [5, 6],
     [7, 8],
     [9, 10],
   ], dtype=dtypes.float32)
-  out = embedding(dict_t, Tensor(
-    [[1, 2, 4], [3, 3, 1]]
-  ))
+  idx = Tensor([[1, 2, 4], [3, 3, 1]])
+  emb_new = EmbeddingV2(5, 2)
+  emb_new.weight = voc
+  out = emb_new(idx)
   print(out.numpy())
-  # print(embedding(dict_t, Tensor([3, 4, 4, 1])).numpy())
-  # assert np.allclose(out.numpy(), [[2.1, 77.7], [-8.1, 22.11], [0.1, -23]])
+
+  emb = Embedding(5, 2)
+  emb.weight = voc
+
+  orig_out = emb(idx)
+  print(orig_out.numpy())
+
+  assert (out.numpy() == orig_out.numpy()).all()
 
 
 if __name__ == "__main__":
