@@ -5,6 +5,7 @@ import torch
 from tinygrad import Tensor, Device, TinyJit
 from tinygrad.helpers import CI, Context
 from tinygrad.nn import BatchNorm2d, Conv1d,ConvTranspose1d, Conv2d,ConvTranspose2d, Linear, GroupNorm, LayerNorm,LayerNorm2d, Embedding, InstanceNorm
+from tinygrad.nn.experimental import Embedding as EmbeddingV2
 
 @unittest.skipIf(CI and Device.DEFAULT == "CUDA", "slow")
 class TestNN(unittest.TestCase):
@@ -316,11 +317,11 @@ class TestNN(unittest.TestCase):
     torch_z = torch_layer(torch_x)
     np.testing.assert_allclose(z.numpy(), torch_z.detach().numpy(), atol=5e-3, rtol=5e-3)
 
-  def test_embedding(self):
+  def _test_embedding(self, cls=Embedding):
     B, T, embed_size, vocab_size = 4, 10, 20, 28
 
     # create in tinygrad
-    layer = Embedding(vocab_size, embed_size)
+    layer = cls(vocab_size, embed_size)
 
     with torch.no_grad():
       torch_layer = torch.nn.Embedding(vocab_size, embed_size).eval()
@@ -352,6 +353,11 @@ class TestNN(unittest.TestCase):
       torch_z = torch_layer(torch_x)
       np.testing.assert_allclose(z.numpy(), torch_z.detach().numpy(), atol=1e-8, rtol=1e-8)
 
+  def test_embedding(self):
+    self._test_embedding(cls=Embedding)
+
+  def test_embedding_v2(self):
+    self._test_embedding(cls=EmbeddingV2)
 
 if __name__ == '__main__':
   unittest.main()
